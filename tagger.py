@@ -27,7 +27,6 @@ class Device(object):
 
 
 class SearcherTool(object):
-
     queries = {
         'sensors': {
             'args': ['content=sensors', 'output=json'],
@@ -71,9 +70,6 @@ class SearcherTool(object):
         return response
 
     def _url(self, query, **kwargs):
-
-        print('kwargs:', kwargs)
-
         url = '{}/{}{}&count={}&start={}'.format(
             self.endpoint,
             query['target'],
@@ -84,10 +80,8 @@ class SearcherTool(object):
 
         if query['args']:
             url += '&' + '&'.join(query['args'])
-
         if query['columns']:
             url += '&columns=' + ','.join(query['columns'])
-
         if kwargs:
             url += '&' + '&'.join(map(lambda x: '{}={}'.format(x[0], x[1]), filter(lambda z: z[1], kwargs.items())))
 
@@ -97,7 +91,6 @@ class SearcherTool(object):
         req = requests.get(url)
         if req.status_code != 200:
             raise BadRequest(req)
-        print(req)
         return req.json()
 
     def post(self, url):
@@ -107,7 +100,6 @@ class SearcherTool(object):
         return True
 
     def query(self, query_type, **kwargs):
-
         while not self.finished:
             resp = self._get_result_set(self._url(self.queries[query_type], **kwargs), counter_item=query_type)
             yield resp
@@ -128,44 +120,32 @@ class SearcherTool(object):
 
 
 def lookup_sensor(searcher, tags=None, objid=None):
-
     sensors = list()
-
-    print(searcher, type(searcher))
-
     for sensor in searcher.query(query_type='sensors', filter_tags=tags, filter_objid=objid):
         sensors.extend([Sensor(**x) for x in sensor['sensors']])
-
     return sensors
 
 
 def lookup_device(searcher, tags=None, objid=None):
-
     devices = list()
-
     for device in searcher.query(query_type='devices', filter_tags=tags, filter_objid=objid):
         devices.extend([Device(**x) for x in device['devices']])
-
     return devices
 
 
 def tag_sensor_parents(searcher, sensors, new_tags):
-
     job_map = dict()
 
     for sensor in sensors:
-
         if sensor.parentid in job_map:
             continue
-
         job_map[sensor.parentid] = {'sensor': sensor, 'device': None, 'updated': False}
 
     for parent in job_map.keys():
-        device = Device(**searcher.lookup_device(parent))
-        results([device])
-        job_map[parent]['device'] = device
+        job_map[parent]['device'] = Device(**searcher.lookup_device(parent))
 
     print('PLEASE REVIEW YOUR CHANGES BEFORE CONTINUING:')
+
     for _id, value, in job_map.items():
         print('{}: DEVICE: {} Will update tags: {}'.format(_id, value['device'].name, new_tags.split(' ')))
         ui = raw_input('Continue? (Y/N) ')
@@ -174,25 +154,24 @@ def tag_sensor_parents(searcher, sensors, new_tags):
         print(searcher.set_object_property(_id, name='tags', value=new_tags))
 
 
-def results(out, job_map=None):
+def results(out):
 
     for index, result in enumerate(out):
         print('{}({}): '.format(result.type, str(index)) + ', '.join([result.name, result.tags]))
 
 
 def main(args):
+
     searcher = SearcherTool(endpoint=args.endpoint, username=args.username, password=args.password, limit=500)
 
     if args.tag_sensor_parents:
         sensors = lookup_sensor(searcher, tags=args.tags, objid=args.objid)
         tag_sensor_parents(searcher=searcher, sensors=sensors, new_tags=args.new_tags)
         return
-
     if args.device:
         out = lookup_device(searcher, args.tags, args.objid)
         results(out)
         return
-
     if args.sensor:
         out = lookup_sensor(searcher, args.tags, args.objid)
         results(out)
