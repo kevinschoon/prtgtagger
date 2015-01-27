@@ -1,52 +1,92 @@
+# -*- coding: utf-8 -*-
+"""
+CLI Tool for Paessler's PRTG (http://www.paessler.com/)
+"""
+
 import argparse
 import os
+import logging
 from prtg.client import Client
 
-try:
-    endpoint = os.environ['PRTGENDPOINT']
-    username = os.environ['PRTGUSERNAME']
-    password = os.environ['PRTGPASSWORD']
-except KeyError as e:
-    print('Unable to load environment variable: {}'.format(e))
-    exit(1)
+
+def load_config():
+
+    endpoint = None
+    username = None
+    password = None
+
+    try:
+        endpoint = os.environ['PRTGENDPOINT']
+        username = os.environ['PRTGUSERNAME']
+        password = os.environ['PRTGPASSWORD']
+    except KeyError as e:
+        print('Unable to load environment variable: {}'.format(e))
+        exit(1)
+
+    return endpoint, username, password
 
 
-def render_table(query):
+def get_response(response):
 
-    def print_row(object_type, name, status, tags):
-        _t = [x for x in filter(lambda t: t != '', tags.split(' '))]  # Filter bad tags
-        print(" %11s %+25s %+10s %s" % (object_type, name, status, _t))
+    from prettytable import PrettyTable
 
-    query.response.sort(key=lambda x: x.name)
-    query.response.sort(key=lambda s: s.status)
+    attribs = list(response[0].__dict__.keys())
+    attribs.sort()
 
-    print('total ', len(query.response))
-    print(" %11s %+25s %+10s %s" % ('object_type', 'object_name', 'status', 'tags'))
-    for index, item in enumerate(query.response):
-        print_row(object_type=item.type, name=item.name, status=item.status, tags=item.tags)
+    p = PrettyTable(attribs)
+
+    for resp in response:
+        p.add_row([resp.__getattribute__(x) for x in attribs])
+
+    return p
 
 
-def render_object(query):
-    print(query.response)
+def get_parents(response):
+    parent_ids = [str(x.parentid) for x in response]
+    return '&filter_objid='.join(parent_ids)
 
 
 def main(args):
+    """
+    Parse commandline arguments for PRTG-CLI.
+    :param args: dict
+    :return: None
+    """
+
+    logging.basicConfig(level=args.level)
+
+    endpoint, username, password = load_config()
 
     c = Client(endpoint=endpoint, username=username, password=password)
 
-    if args.command == 'table':
+    if args.command == 'ls':
+
         q = c.get_table_output(filter_string=args.filterstring, content=args.content)
-        render_table(c.query(q))
+
+        if args.parents:  # Lookup the parents of a sensor or device.
+            children = c.query(q)
+            print(children.response)
+        else:
+            c.query(q)
+            print(get_response(q.response))
 
     if args.command == 'status':
+
         q = c.get_status()
-        render_object(c.query(q))
+        c.query(q)
+        print(get_response(q.response))
 
 
 if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(description='PRTG Command Line Interface')
-    parser.add_argument('command', type=str, help='command name', choices=['table', 'status'])
+    parser.add_argument('command', type=str, help='command name', choices=['ls', 'status'])
     parser.add_argument('-c', '--content', type=str, help='object type', default='devices',
                         choices=['devices', 'sensors'])
     parser.add_argument('-f', '--filter-string', type=str, dest='filterstring', help='object filter string', default='')
+    parser.add_argument('-p', '--parents', action='store_true', help='Lookup parent objects of the sensor or device',
+                        default=False)
+    parser.add_argument('-s', '--sort-by', type=str, help='Sort by a particular value', default='objid')
+    parser.add_argument('-n', '--new-tags', help='Add new tags', dest='newtags')
+    parser.add_argument('-l', '--level', help='Logging level', default='INFO')
     main(parser.parse_args())
